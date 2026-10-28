@@ -128,8 +128,14 @@ details.adv .field { margin-top: 8px; }
 .line.done .item, .line.done .prod { text-decoration: line-through; opacity: 0.55; }
 .line .tools { grid-column: 2 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
 .link { background: none; border: 0; padding: 2px 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.until { font-size: 12px; color: var(--muted); }
-.until.soon { color: var(--warn); font-weight: 600; }
+.until { font-size: 12.5px; color: var(--muted); }
+.until.soon { color: var(--warn); font-weight: 700; }
+.sum .when { opacity: 1; }
+.laterlist { list-style: none; padding: 0 !important; gap: 10px !important; }
+.laterlist li { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 2px; }
+.laterlist li:first-child { border-top: 0; padding-top: 0; }
+.laterlist small { color: var(--muted); }
+.laterlist .tools { display: flex; gap: 12px; flex-wrap: wrap; }
 .alts { grid-column: 1 / -1; background: var(--paper); border-radius: 8px; padding: 8px; display: grid; gap: 6px; }
 .alt { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; align-items: center; font-size: 13px; }
 .alt .dot { width: 9px; height: 9px; border-radius: 50%; }
@@ -391,6 +397,123 @@ details.adv .field { margin-top: 8px; }
     return true;
   }
 
+  // ---------- day rules in the small print ----------
+  /* Flyers often list an offer for the whole flyer week but print "Kun søndag", "Fredag-søndag",
+     "Søndagstilbud" or "Gælder 1/11" in the text. Read that so the offer only counts on those days. */
+  var WEEKDAYS = { mandag: 1, tirsdag: 2, onsdag: 3, torsdag: 4, fredag: 5, lordag: 6, sondag: 0 };
+  var WD_ABBR = { man: 1, tir: 2, ons: 3, tor: 4, fre: 5, lor: 6, son: 0 };
+  var MONTHS = { jan: 1, januar: 1, feb: 2, februar: 2, mar: 3, marts: 3, apr: 4, april: 4, maj: 5, jun: 6, juni: 6, jul: 7, juli: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9, okt: 10, oktober: 10, nov: 11, november: 11, dec: 12, december: 12 };
+
+  function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+  function dayRange(a, b) { var out = [], d = a; for (var i = 0; i < 7; i++) { out.push(d); if (d === b) break; d = (d + 1) % 7; } return out; }
+
+  function dayRule(o) {
+    var raw = String((o.heading || '') + ' . ' + (o.description || ''));
+    var t = fold(raw);
+    var days = {};
+    var found = false;
+
+    // "søndagstilbud", "weekendtilbud"
+    var m, re = /\b(mandag|tirsdag|onsdag|torsdag|fredag|lordag|sondag)s?tilbud/g;
+    while ((m = re.exec(t))) { days[WEEKDAYS[m[1]]] = 1; found = true; }
+    if (/\bweekend(tilbud|pris)?\b/.test(t) && !/\bweekendtaske/.test(t)) { days[5] = days[6] = days[0] = 1; found = true; }
+
+    // Weekday words and ranges: "kun søndag", "fredag-søndag", "fredag til søndag", "lørdag og søndag", "fre-søn"
+    var words = t.split(' ');
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i], d = WEEKDAYS.hasOwnProperty(w) ? WEEKDAYS[w] : null;
+      var abbr = WD_ABBR.hasOwnProperty(w) ? WD_ABBR[w] : null;
+      if (d === null && abbr === null) continue;
+      if (words[i - 1] === 'fra' || words[i - 1] === 'aben' || words[i - 1] === 'abent') continue; // "fra mandag" is a start date, not a rule
+      var j = i + 1; if (words[j] === 'til') j++;
+      var nextW = words[j];
+      var d2 = nextW && WEEKDAYS.hasOwnProperty(nextW) ? WEEKDAYS[nextW] : (nextW && WD_ABBR.hasOwnProperty(nextW) ? WD_ABBR[nextW] : null);
+      if (d === null) { // abbreviations only count as a pair, "man" alone is too ambiguous
+        if (d2 === null) continue;
+        d = abbr;
+      }
+      if (d2 !== null) { dayRange(d, d2).forEach(function (x) { days[x] = 1; }); i = j; }
+      else days[d] = 1;
+      found = true;
+    }
+
+    // Explicit dates inside the offer's run: "1/11", "1.11", "1. november", "d. 1. nov"
+    var dates = {};
+    var from = o.runFrom ? new Date(o.runFrom) : null, till = o.runTill ? new Date(o.runTill) : null;
+    function addDate(dd, mm) {
+      if (!(dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12)) return;
+      var base = from || new Date();
+      [base.getFullYear(), base.getFullYear() + 1].forEach(function (y) {
+        var x = new Date(y, mm - 1, dd, 12);
+        if (x.getMonth() !== mm - 1) return;
+        if (from && till && (x < new Date(from.getTime() - 864e5) || x > new Date(till.getTime() + 864e5))) return;
+        if (!from || !till) return; // without a run window a bare date is too risky to trust
+        dates[ymd(x)] = 1;
+      });
+    }
+    var reNum = /(^|[^\d,.])(\d{1,2})[\/.](\d{1,2})(?![\d,.]|\s?(%|kg|g|l|cl|dl|ml|stk|pk))/g;
+    while ((m = reNum.exec(raw))) addDate(+m[2], +m[3]);
+    var reMon = /\b(\d{1,2})\s(jan|januar|feb|februar|mar|marts|apr|april|maj|jun|juni|jul|juli|aug|august|sep|sept|september|okt|oktober|nov|november|dec|december)\b/g;
+    while ((m = reMon.exec(t))) addDate(+m[1], MONTHS[m[2]]);
+
+    var dateList = Object.keys(dates).sort();
+    if (dateList.length) return { dates: dateList };
+    if (found) return { days: Object.keys(days).map(Number) };
+    return null;
+  }
+
+  function ruleOk(o, date) {
+    var r = o.rule;
+    if (r === undefined) r = o.rule = dayRule(o);
+    if (!r) return true;
+    if (r.dates) return r.dates.indexOf(ymd(date)) >= 0;
+    return r.days.indexOf(date.getDay()) >= 0;
+  }
+
+  // On sale on this date: inside the flyer dates and allowed by any day rule in the small print.
+  function availableOn(o, date) { return validOn(o, date) && ruleOk(o, date); }
+
+  // First date from `date` (within `horizon` days) the offer can be bought, or null.
+  function nextAvailable(o, date, horizon) {
+    horizon = horizon == null ? 8 : horizon;
+    for (var i = 0; i <= horizon; i++) {
+      var d = new Date(date); d.setDate(d.getDate() + i); d.setHours(12, 0, 0, 0);
+      if (availableOn(o, d)) return d;
+    }
+    return null;
+  }
+
+  /* A short line for each product saying when it can be bought, seen from the shopping day:
+     { text, kind } where kind is 'ok' | 'last' (last day) | 'restricted' (only some days) | 'later'. */
+  function availabilityLabel(o, day, locale) {
+    locale = locale || 'en-GB';
+    var fmt = function (d) { return d.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' }); };
+    var short = function (d) { return d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }); };
+    var r = o.rule === undefined ? (o.rule = dayRule(o)) : o.rule;
+    var today = new Date(day); today.setHours(12, 0, 0, 0);
+    var onDay = availableOn(o, today);
+    if (!onDay) {
+      var next = nextAvailable(o, today);
+      if (!next) return { text: 'Not on sale on your shopping day', kind: 'later' };
+      return { text: (r ? 'Only on ' : 'On sale from ') + fmt(next), kind: 'later', date: next };
+    }
+    if (r) {
+      // List the days it is valid within the run, e.g. "Only Friday–Sunday"
+      var valid = [];
+      for (var i = -7; i <= 8; i++) { var d = new Date(today); d.setDate(d.getDate() + i); if (availableOn(o, d)) valid.push(d); }
+      if (valid.length === 1) return { text: 'Only on ' + fmt(valid[0]) + ' (one-day deal)', kind: 'restricted' };
+      return { text: 'Only ' + short(valid[0]) + ' – ' + short(valid[valid.length - 1]) + ' (check the day)', kind: 'restricted' };
+    }
+    if (o.runTill) {
+      var till = new Date(o.runTill);
+      var sameDay = ymd(till) === ymd(today);
+      return { text: sameDay ? 'Last day today' : 'Until ' + fmt(till), kind: sameDay ? 'last' : 'ok' };
+    }
+    return { text: '', kind: 'ok' };
+  }
+
   // ---------- matching ----------
   var NON_FOOD_FOR_HUMANS = ['kattemad', 'hundemad', 'foder', 'katte', 'hunde', 'dyrefoder', 'kattegrus', 'hundesnack', 'whiskas', 'felix', 'pedigree', 'legetoj'];
 
@@ -438,36 +561,39 @@ details.adv .field { margin-top: 8px; }
     var allowed = opts.chains || null; // {key:true}
     var day = opts.day || null;
 
-    var cands = [];
+    var matched = [], byId = {};
     (offers || []).forEach(function (o) {
       if (!o || !o.chain) return;
+      if (byId[o.id]) return; // the same offer can come back from several queries
       if (allowed && !allowed[o.chain]) return;
       if (excluded[o.id]) return;
-      if (!validOn(o, day)) return;
       var sc = matchScore(item.query, o);
       if (sc <= 0 && item.query !== item.name) sc = matchScore(item.name, o);
       if (sc <= 0) return;
-      cands.push({ offer: o, score: sc });
+      byId[o.id] = 1;
+      var now = !day || availableOn(o, day);
+      var next = now ? null : (day ? nextAvailable(o, day, 8) : null);
+      if (!now && !next) return; // expired, or too far ahead
+      matched.push({ offer: o, score: sc, now: now, next: next });
     });
 
-    // de-duplicate the same offer coming back from several queries
-    var byId = {};
-    cands = cands.filter(function (c) { if (byId[c.offer.id]) return false; byId[c.offer.id] = 1; return true; });
-
-    var top = cands.reduce(function (m, c) { return Math.max(m, c.score); }, 0);
-    var eligible = cands.filter(function (c) { return c.score >= top - 1; });
+    var top = matched.reduce(function (m, c) { return Math.max(m, c.score); }, 0);
+    var good = matched.filter(function (c) { return c.score >= top - 1; });
+    var cands = matched.filter(function (c) { return c.now; });
+    var eligible = good.filter(function (c) { return c.now; });
+    var laterAll = good.filter(function (c) { return !c.now; });
 
     // Dominant measuring dimension and a typical pack size for comparisons.
     var dims = {};
-    eligible.forEach(function (c) { if (c.offer.dim) dims[c.offer.dim] = (dims[c.offer.dim] || 0) + 1; });
+    good.forEach(function (c) { if (c.offer.dim) dims[c.offer.dim] = (dims[c.offer.dim] || 0) + 1; });
     var dim = Object.keys(dims).sort(function (a, b) { return dims[b] - dims[a]; })[0] || null;
-    var refAmount = dim ? median(eligible.filter(function (c) { return c.offer.dim === dim; }).map(function (c) { return c.offer.amount; })) : null;
+    var refAmount = dim ? median(good.filter(function (c) { return c.offer.dim === dim; }).map(function (c) { return c.offer.amount; })) : null;
 
     function comparable(o, p) {
       if (dim && refAmount && o.dim === dim && o.amount) return (p / o.amount) * refAmount;
       return p;
     }
-    eligible.forEach(function (c) { c.cost = comparable(c.offer, c.offer.price); });
+    good.forEach(function (c) { c.cost = comparable(c.offer, c.offer.price); });
 
     if (pinned) {
       var pin = cands.filter(function (c) { return c.offer.id === pinned; })[0];
@@ -486,9 +612,18 @@ details.adv .field { margin-top: 8px; }
     var regular = preCosts.length ? median(preCosts) : (costs.length ? Math.max.apply(null, costs) * 1.2 : null);
 
     eligible.sort(function (a, b) { return a.cost - b.cost; });
+
+    // Deals on another day this week that beat what you can get on the shopping day.
+    var todayBest = eligible.length ? eligible[0].cost : Infinity;
+    var later = laterAll
+      .filter(function (c) { return c.cost < todayBest - 0.5; })
+      .sort(function (a, b) { return a.cost - b.cost; })
+      .slice(0, 3);
+
     return {
       name: item.name, key: item.key, qty: item.qty, query: item.query,
-      best: best, regular: regular, candidates: eligible, allCandidates: cands, pinned: pinned
+      best: best, regular: regular, candidates: eligible, allCandidates: cands.concat(matched.filter(function (c) { return !c.now; })),
+      later: later, pinned: pinned
     };
   }
 
@@ -551,6 +686,7 @@ details.adv .field { margin-top: 8px; }
   var api = {
     fold: fold, CHAINS: CHAINS, CHAIN_BY_KEY: CHAIN_BY_KEY, chainOf: chainOf, translate: translate,
     parseList: parseList, normOffer: normOffer, unitPriceLabel: unitPriceLabel, validOn: validOn, flyerUrl: flyerUrl, searchUrl: searchUrl,
+    dayRule: dayRule, availableOn: availableOn, nextAvailable: nextAvailable, availabilityLabel: availabilityLabel,
     matchScore: matchScore, buildItem: buildItem, optimise: optimise, tillTotal: tillTotal
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -567,6 +703,8 @@ details.adv .field { margin-top: 8px; }
   var L = { symbol: 'l', si: { symbol: 'l', factor: 1 } };
   var PCS = { symbol: 'pcs', si: { symbol: 'pcs', factor: 1 } };
   var n = 0;
+  // A day-only deal two days from now, so the example shows a "kun søndag"-style offer.
+  var LATER_DAY = ['søndag', 'mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag'][new Date(now + 2 * day).getDay()];
   function o(store, heading, price, pre, unit, size, desc) {
     return {
       id: 'demo-' + (++n), heading: heading, description: desc || '',
@@ -599,6 +737,7 @@ details.adv .field { margin-top: 8px; }
     o('Lidl', 'Rugbrød, solsikke', 15, 20, KG, 1000),
     o('Coop 365discount', 'Rugbrød', 12, 17, KG, 700),
     o('Netto', 'Lurpak smørbar', 22, 30, KG, 200, 'Normalsaltet, letsaltet eller usaltet. Flere varianter'),
+    o('Netto', 'Lurpak smør', 12, 30, KG, 250, 'Kun ' + LATER_DAY + '. Max 3 stk. pr. kunde'),
     o('Lidl', 'Milbona dansk smør', 20, 26, KG, 250, 'Saltet. 80% fedt'),
     o('Lidl', 'Combino pasta', 8, 12, KG, 500, 'Penne, fusilli eller spaghetti'),
     o('REMA 1000', 'Barilla pasta', 12, 18, KG, 500, 'Flere varianter')
@@ -642,12 +781,12 @@ details.adv .field { margin-top: 8px; }
   function isoWeek(d) { var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); var day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day); var y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y) / 864e5 + 1) / 7); }
   function todayStr() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function dayDate() { var v = $('day').value || todayStr(); var p = v.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
-  function untilLabel(iso) {
-    if (!iso) return { t: '', soon: false };
-    var d = new Date(iso), now = dayDate();
-    var days = Math.floor((d - now) / 864e5);
-    var name = d.toLocaleDateString('da-DK', { weekday: 'short', day: 'numeric', month: 'short' });
-    return { t: 'til ' + name, soon: days < 1 };
+  function ymdStr(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function longDate(d) { return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }); }
+  // When the offer can be bought, seen from the chosen shopping day.
+  function untilLabel(o) {
+    var a = C.availabilityLabel(o, dayDate());
+    return { t: a.text, soon: a.kind !== 'ok', later: a.kind === 'later', date: a.date || null };
   }
 
   // ---------- location ----------
@@ -766,9 +905,10 @@ details.adv .field { margin-top: 8px; }
     else if (note) out.push('<div class="banner">' + esc(note) + '</div>');
 
     var res = lastResult;
-    var none = lastItems.filter(function (it) { return !Object.keys(it.best).length; });
+    var none = lastItems.filter(function (it) { return !Object.keys(it.best).length && !(it.later && it.later.length); });
     if (!res) {
-      out.push('<div class="plain"><h3>No offers match your list</h3><p class="hint">None of the stores near you have these on offer for the chosen day. Try other words (e.g. “kyllingebryst” instead of “kylling”), a bigger radius or another shopping day.</p></div>');
+      out.push('<div class="plain"><h3>Nothing on offer on ' + esc(longDate(dayDate())) + '</h3><p class="hint">None of the stores near you have these on offer that day. Try other words (e.g. “kyllingebryst” instead of “kylling”), a bigger radius or another shopping day.</p></div>');
+      out.push(laterHtml(null));
       $('out').innerHTML = out.join(''); return;
     }
 
@@ -789,6 +929,7 @@ details.adv .field { margin-top: 8px; }
     }
     out.push('<section class="sum"><div class="eyebrow">' + (plan === res.best ? 'Best plan' : 'Your pick') + ' · ' + onOffer + ' of ' + lastItems.length + ' items on offer</div>' +
       '<h2>Shop at ' + esc(storeList(plan.stores)) + '</h2>' +
+      '<p class="when">Prices for <b>' + esc(longDate(dayDate())) + '</b>' + (ymdStr(dayDate()) === todayStr() ? ' (today)' : '') + '</p>' +
       '<div class="big"><span class="total">' + krRound(till) + ' kr</span><span class="tag">for the items on offer</span></div>' +
       '<p>' + esc(why) + '</p></section>');
 
@@ -816,6 +957,8 @@ details.adv .field { margin-top: 8px; }
       out.push(h.join(''));
     });
 
+    out.push(laterHtml(plan));
+
     // bought at regular price
     if (plan.missing.length) {
       var m = ['<div class="plain"><h3>Not on offer in these stores</h3><p class="hint">Buy these at regular price wherever you go. Nearby offers are shown in case you pass by.</p><ul>'];
@@ -834,12 +977,34 @@ details.adv .field { margin-top: 8px; }
     $('out').innerHTML = out.join('');
   }
 
+  // Offers for your list that are only valid on another day this week and beat the shopping-day price.
+  function laterHtml(plan) {
+    var laterItems = lastItems.filter(function (it) { return it.later && it.later.length; });
+    if (!laterItems.length) return '';
+    {
+      var lt = ['<div class="plain later"><h3>Cheaper on another day</h3><p class="hint">These offers are not valid on your shopping day. Shop on that day instead, or skip them.</p><ul class="laterlist">'];
+      laterItems.forEach(function (it) {
+        var c = it.later[0], o = c.offer, u = untilLabel(o);
+        var nowPick = plan && (plan.assign.filter(function (a) { return a.item.key === it.key; })[0] || {}).pick;
+        var save = nowPick ? (nowPick.cost - c.cost) * it.qty : null;
+        lt.push('<li><div><b>' + esc(label(it)) + '</b> · ' + esc(chainName(o.chain)) + ' · ' + esc(o.heading) + ' · <b>' + kr(o.price * it.qty) + ' kr</b>' +
+          (save && save >= 1 ? ' <small>(about ' + krRound(save) + ' kr less than today’s pick)</small>' : '') + '</div>' +
+          '<div class="until soon">' + esc(u.t) + '</div>' +
+          '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' +
+          (u.date ? '<button type="button" class="link" data-day="' + ymdStr(u.date) + '">Plan my shop for ' + esc(u.date.toLocaleDateString('en-GB', { weekday: 'long' })) + '</button>' : '') + '</div></li>');
+      });
+      lt.push('</ul></div>');
+      return lt.join('');
+    }
+  }
+
+
   function label(it) { return (it.qty > 1 ? it.qty + ' × ' : '') + it.name; }
 
   function lineHtml(it, pick) {
     var o = pick.offer;
     var done = !!S.checked[it.key + '|' + o.id];
-    var u = untilLabel(o.runTill);
+    var u = untilLabel(o);
     var bits = [o.heading];
     if (o.packLabel) bits.push(o.packLabel);
     var up = C.unitPriceLabel(o); if (up) bits.push(up);
@@ -867,13 +1032,17 @@ details.adv .field { margin-top: 8px; }
   }
 
   function altsHtml(it, currentId) {
-    var list = it.allCandidates.slice().sort(function (a, b) { return b.score - a.score || a.offer.price - b.offer.price; }).slice(0, 10);
+    var list = it.allCandidates.slice().sort(function (a, b) { return (b.now ? 1 : 0) - (a.now ? 1 : 0) || b.score - a.score || a.offer.price - b.offer.price; }).slice(0, 10);
     var h = ['<div class="alts">'];
     list.forEach(function (c) {
       var o = c.offer, ch = C.CHAIN_BY_KEY[o.chain];
       var up = C.unitPriceLabel(o);
-      h.push('<div class="alt"><span class="dot" style="background:' + ch.color + '"></span><span class="t"><b>' + esc(ch.name) + '</b> · ' + esc(o.heading) + (o.packLabel ? ' · ' + esc(o.packLabel) : '') + (up ? ' · ' + esc(up) : '') + (descText(o) ? '<br><small>' + esc(descText(o)) + '</small>' : '') + '</span><span class="p">' + kr(o.price) + '</span>' +
-        '<span class="b"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' + (o.id === currentId ? '<span class="hint">Chosen</span>' : '<button type="button" class="link" data-pin="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Use this</button>') +
+      var u = untilLabel(o);
+      var useBtn = o.id === currentId ? '<span class="hint">Chosen</span>'
+        : (c.now ? '<button type="button" class="link" data-pin="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Use this</button>'
+          : (u.date ? '<button type="button" class="link" data-day="' + ymdStr(u.date) + '">Shop that day</button>' : ''));
+      h.push('<div class="alt"><span class="dot" style="background:' + ch.color + '"></span><span class="t"><b>' + esc(ch.name) + '</b> · ' + esc(o.heading) + (o.packLabel ? ' · ' + esc(o.packLabel) : '') + (up ? ' · ' + esc(up) : '') + (descText(o) ? '<br><small>' + esc(descText(o)) + '</small>' : '') + (u.t ? '<br><span class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</span>' : '') + '</span><span class="p">' + kr(o.price) + '</span>' +
+        '<span class="b"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' + useBtn +
         '<button type="button" class="link" data-exclude="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Not what I meant</button></span></div>');
     });
     h.push('</div>');
@@ -892,7 +1061,7 @@ details.adv .field { margin-top: 8px; }
   function openSheet(id) {
     var o = findOffer(id); if (!o) return;
     var ch = C.CHAIN_BY_KEY[o.chain] || { name: o.dealer, color: 'var(--paper)', ink: 'var(--ink)' };
-    var u = untilLabel(o.runTill);
+    var u = untilLabel(o);
     var up = C.unitPriceLabel(o);
     var flyer = mode === 'live' ? C.flyerUrl(o) : null;
     var h = '<div class="sheet-card">' +
@@ -901,7 +1070,8 @@ details.adv .field { margin-top: 8px; }
       '<h3>' + esc(o.heading) + '</h3>' +
       (descText(o) ? '<p class="hint" style="margin:0">' + esc(o.description) + '</p>' : '') +
       '<div class="bigprice">' + kr(o.price) + ' kr' + (o.prePrice ? '<s>før ' + kr(o.prePrice) + '</s>' : '') + '</div>' +
-      '<p class="hint" style="margin:0">' + esc([o.packLabel, up, u.t].filter(Boolean).join(' · ')) + '</p>' +
+      '<p class="hint" style="margin:0">' + esc([o.packLabel, up].filter(Boolean).join(' · ')) + '</p>' +
+      (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') +
       (mode === 'live' ? '<div class="btns">' +
         (flyer ? '<a class="primary" href="' + esc(flyer) + '" target="_blank" rel="noopener">Open the flyer' + (o.catalogPage ? ' (page ' + o.catalogPage + ')' : '') + '</a>' : '') +
         '<a class="secondary" href="' + esc(C.searchUrl(o)) + '" target="_blank" rel="noopener">Find it on eTilbudsavis</a></div>'
@@ -975,6 +1145,8 @@ details.adv .field { margin-top: 8px; }
     });
     $('out').addEventListener('click', function (e) {
       var t = e.target;
+      var dd = t.closest('[data-day]');
+      if (dd) { $('day').value = dd.getAttribute('data-day'); compute(true); window.scrollTo({ top: $('out').offsetTop - 12, behavior: 'smooth' }); return; }
       var v = t.closest('[data-view]');
       if (v) { openSheet(v.getAttribute('data-view')); return; }
       var p = t.closest('[data-plan]');
