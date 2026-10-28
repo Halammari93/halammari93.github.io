@@ -1,0 +1,16 @@
+{
+  "name": "Tilbudslisten",
+  "short_name": "Tilbud",
+  "description": "Your shopping list matched against this week's Danish supermarket offers.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F2F3EE",
+  "theme_color": "#16202B",
+  "lang": "en",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

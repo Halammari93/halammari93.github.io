@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#16202B"/>
+  <path d="M136 120h180l80 80v192a20 20 0 0 1-20 20H136a20 20 0 0 1-20-20V140a20 20 0 0 1 20-20z" fill="#F2F3EE"/>
+  <path d="M316 120v60a20 20 0 0 0 20 20h60" fill="#D8DBD3"/>
+  <rect x="156" y="232" width="150" height="20" rx="10" fill="#16202B"/>
+  <rect x="156" y="282" width="110" height="20" rx="10" fill="#16202B"/>
+  <rect x="156" y="332" width="130" height="20" rx="10" fill="#16202B"/>
+  <circle cx="356" cy="356" r="88" fill="#FFD23F"/>
+  <text x="356" y="384" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="80" fill="#1C1600">kr</text>
+</svg>
