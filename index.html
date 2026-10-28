@@ -131,6 +131,11 @@ details.adv .field { margin-top: 8px; }
 .until { font-size: 12.5px; color: var(--muted); }
 .until.soon { color: var(--warn); font-weight: 700; }
 .sum .when { opacity: 1; }
+.src { font: 600 11.5px var(--mono); color: var(--muted); letter-spacing: 0.02em; }
+.alt .src { display: block; }
+.src.everyday { color: var(--warn); }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.check input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
 .laterlist { list-style: none; padding: 0 !important; gap: 10px !important; }
 .laterlist li { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 2px; }
 .laterlist li:first-child { border-top: 0; padding-top: 0; }
@@ -198,6 +203,7 @@ details.adv .field { margin-top: 8px; }
       <span class="lbl">Stores to include</span>
       <div class="chips" id="chips"></div>
     </div>
+    <label class="check" for="everyday"><input type="checkbox" id="everyday"> <span><b>Include everyday low prices</b><br><span class="hint">Long-running price lists like Lidl’s “Fast lav pris”. Off: only this week’s flyers.</span></span></label>
     <details class="adv">
       <summary>Advanced</summary>
       <div class="field">
@@ -211,7 +217,7 @@ details.adv .field { margin-top: 8px; }
 
   <div id="out" aria-live="polite"></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Offer details" hidden></div>
-  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:11</p>
+  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:20</p>
 </div>
 
 <script>
@@ -406,6 +412,38 @@ details.adv .field { margin-top: 8px; }
     return true;
   }
 
+  // ---------- which flyer an offer comes from ----------
+  /* The offer service mixes the weekly flyer ("Lidl avis (uge 44)") with long-running brochures such as
+     Lidl's "Fast lav pris", which can run from May to December. Those are everyday prices, not weekly deals. */
+  var EVERYDAY_RE = /\b(fast lav pris|faste lave priser|fastlavpris|altid lav|altid lave priser|hverdagspris|lavprisgaranti|permanent)/;
+
+  function normCatalog(c) {
+    if (!c || !c.id) return null;
+    return { id: String(c.id), label: c.label || c.name || '', runFrom: isoDate(c.run_from), runTill: isoDate(c.run_till) };
+  }
+
+  function isoWeekOf(d) {
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var wd = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - wd);
+    var y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - y) / 864e5 + 1) / 7);
+  }
+
+  /* { label, everyday, from, till } for an offer. `label` is the flyer name when known,
+     otherwise "Week 44 flyer" worked out from the dates. */
+  function sourceInfo(o) {
+    var cat = o.catalog || null;
+    var from = (cat && cat.runFrom) || o.runFrom, till = (cat && cat.runTill) || o.runTill;
+    var f = from ? new Date(from) : null, t = till ? new Date(till) : null;
+    var spanDays = f && t ? (t - f) / 864e5 : null;
+    var text = fold((cat && cat.label) || '') + ' ' + fold(o.heading) + ' ' + fold(o.description);
+    var everyday = EVERYDAY_RE.test(text) || (spanDays !== null && spanDays > 21);
+    // Danish flyers are named after the week they mostly cover ("uge 44" runs Sun 25 – Sat 31 Oct), so use the middle day.
+    var mid = f && t ? new Date((f.getTime() + t.getTime()) / 2) : f;
+    var label = cat && cat.label ? cat.label : (mid && !everyday ? 'Week ' + isoWeekOf(mid) + ' flyer' : '');
+    return { label: label, everyday: everyday, from: f, till: t };
+  }
+
   // ---------- day rules in the small print ----------
   /* Flyers often list an offer for the whole flyer week but print "Kun søndag", "Fredag-søndag",
      "Søndagstilbud" or "Gælder 1/11" in the text. Read that so the offer only counts on those days. */
@@ -576,6 +614,7 @@ details.adv .field { margin-top: 8px; }
       if (byId[o.id]) return; // the same offer can come back from several queries
       if (allowed && !allowed[o.chain]) return;
       if (excluded[o.id]) return;
+      if (!opts.everyday && sourceInfo(o).everyday) return; // weekly flyers only, unless switched on
       var sc = matchScore(item.query, o);
       if (sc <= 0 && item.query !== item.name) sc = matchScore(item.name, o);
       if (sc <= 0) return;
@@ -695,6 +734,7 @@ details.adv .field { margin-top: 8px; }
   var api = {
     fold: fold, CHAINS: CHAINS, CHAIN_BY_KEY: CHAIN_BY_KEY, chainOf: chainOf, translate: translate,
     parseList: parseList, normOffer: normOffer, unitPriceLabel: unitPriceLabel, validOn: validOn, flyerUrl: flyerUrl, searchUrl: searchUrl,
+    isoDate: isoDate, normCatalog: normCatalog, sourceInfo: sourceInfo,
     dayRule: dayRule, availableOn: availableOn, nextAvailable: nextAvailable, availabilityLabel: availabilityLabel,
     matchScore: matchScore, buildItem: buildItem, optimise: optimise, tillTotal: tillTotal
   };
@@ -765,7 +805,7 @@ details.adv .field { margin-top: 8px; }
   // ---------- state ----------
   var defaults = {
     list: 'kylling\nhakket oksekød\n2 x mælk\nhavregryn\næg\nkaffe\nbananer\nrugbrød\nsmør\npasta',
-    postcode: '', radius: '10000', threshold: 30, chains: {}, excluded: {}, pinned: {}, checked: {}, apiBase: '', geo: {}
+    postcode: '', radius: '10000', threshold: 30, everyday: false, chains: {}, excluded: {}, pinned: {}, checked: {}, apiBase: '', geo: {}
   };
   var S = load();
   var cache = {};         // query|lat|lng|radius -> normalised offers
@@ -838,6 +878,32 @@ details.adv .field { margin-top: 8px; }
     });
   }
 
+  // Flyer names and dates ("Lidl avis (uge 44)") so each product can say which flyer it is from.
+  var catalogs = {};
+  function getJson(url) {
+    return fetch(url).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  }
+  function fetchCatalogs(loc) {
+    var base = apiBase() + '/catalogs?';
+    var page = function (offset) {
+      return getJson(base + new URLSearchParams({ r_lat: loc.lat, r_lng: loc.lng, r_radius: S.radius, limit: 100, offset: offset }))
+        .then(function (rows) { (Array.isArray(rows) ? rows : []).forEach(function (c) { var n = C.normCatalog(c); if (n) catalogs[n.id] = n; }); return rows; });
+    };
+    return page(0).then(function (rows) { if (rows && rows.length === 100) return page(100); }).catch(function () {});
+  }
+  // Look up flyers the nearby list did not include (max 20, so it stays quick).
+  function fetchMissingCatalogs(lists) {
+    var ids = {};
+    lists.forEach(function (l) { (l || []).forEach(function (o) { if (o.catalogId && !catalogs[o.catalogId]) ids[o.catalogId] = 1; }); });
+    var todo = Object.keys(ids).slice(0, 20).map(function (id) {
+      return function () { return getJson(apiBase() + '/catalogs/' + encodeURIComponent(id)).then(function (c) { var n = C.normCatalog(c); if (n) catalogs[n.id] = n; }).catch(function () {}); };
+    });
+    return pool(todo, 4);
+  }
+  function attachCatalogs(lists) {
+    lists.forEach(function (l) { (l || []).forEach(function (o) { o.catalog = (o.catalogId && catalogs[o.catalogId]) || null; }); });
+  }
+
   function demoOffers(query) {
     // Matching happens in buildItem, same as for live offers.
     return (window.TLDemo || []).map(C.normOffer).filter(Boolean);
@@ -862,6 +928,7 @@ details.adv .field { margin-top: 8px; }
 
     var started = mode === 'demo' ? Promise.reject({ demo: true }) : (S.postcode ? locate(S.postcode) : Promise.reject(new Error('Type your postcode so I only use stores near you.')));
     started.then(function (loc) {
+      var cats = fetchCatalogs(loc);
       return pool(parsed.map(function (it) {
         return function () {
           return fetchOffers(it.query, loc).then(function (list) {
@@ -870,6 +937,8 @@ details.adv .field { margin-top: 8px; }
           });
         };
       }), 4).then(function (lists) {
+        return cats.then(function () { return fetchMissingCatalogs(lists); }).then(function () { attachCatalogs(lists); return lists; });
+      }).then(function (lists) {
         mode = 'live';
         parsed.forEach(function (it, i) { offersByItem[it.key] = lists[i]; });
         compute(true, loc.exact === false ? 'Address lookup was unavailable, so stores are measured from the middle of your postcode area.' : '');
@@ -888,7 +957,7 @@ details.adv .field { margin-top: 8px; }
     var allowed = activeChains();
     var day = dayDate();
     lastItems = parsed.map(function (it) {
-      return C.buildItem(it, offersByItem[it.key] || [], { excluded: S.excluded[it.key] || {}, pinned: S.pinned[it.key] || null, chains: allowed, day: day });
+      return C.buildItem(it, offersByItem[it.key] || [], { excluded: S.excluded[it.key] || {}, pinned: S.pinned[it.key] || null, chains: allowed, day: day, everyday: !!S.everyday });
     });
     lastResult = C.optimise(lastItems, +S.threshold, 3);
     if (resetPlan) planIndex = null;
@@ -1025,6 +1094,7 @@ details.adv .field { margin-top: 8px; }
       (o.thumb ? '<button type="button" class="thumbbtn" data-view="' + esc(o.id) + '" aria-label="Show ' + esc(o.heading) + ' larger"><img class="thumb" src="' + esc(o.thumb) + '" alt="" loading="lazy" onerror="this.parentNode.remove()"></button>' : '') +
       '<div class="txt"><div class="item">' + esc(label(it)) + '</div><div class="prod">' + esc(bits.join(' · ')) + '</div>' +
       (desc ? '<div class="desc">' + esc(desc) + '</div>' : '') +
+      srcHtml(o) +
       (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') + '</div></div>' +
       '<div class="price">' + kr(o.price * it.qty) + (o.prePrice ? '<s>' + kr(o.prePrice * it.qty) + '</s>' : '') + '</div>' +
       '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button><button type="button" class="link" data-alts="' + esc(it.key) + '">' + (openAlts[it.key] ? 'Hide other offers' : 'Wrong product? See other offers') + '</button>' +
@@ -1050,7 +1120,7 @@ details.adv .field { margin-top: 8px; }
       var useBtn = o.id === currentId ? '<span class="hint">Chosen</span>'
         : (c.now ? '<button type="button" class="link" data-pin="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Use this</button>'
           : (u.date ? '<button type="button" class="link" data-day="' + ymdStr(u.date) + '">Shop that day</button>' : ''));
-      h.push('<div class="alt"><span class="dot" style="background:' + ch.color + '"></span><span class="t"><b>' + esc(ch.name) + '</b> · ' + esc(o.heading) + (o.packLabel ? ' · ' + esc(o.packLabel) : '') + (up ? ' · ' + esc(up) : '') + (descText(o) ? '<br><small>' + esc(descText(o)) + '</small>' : '') + (u.t ? '<br><span class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</span>' : '') + '</span><span class="p">' + kr(o.price) + '</span>' +
+      h.push('<div class="alt"><span class="dot" style="background:' + ch.color + '"></span><span class="t"><b>' + esc(ch.name) + '</b> · ' + esc(o.heading) + (o.packLabel ? ' · ' + esc(o.packLabel) : '') + (up ? ' · ' + esc(up) : '') + (descText(o) ? '<br><small>' + esc(descText(o)) + '</small>' : '') + (u.t ? '<br><span class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</span>' : '') + srcHtml(o).replace(/<div/, '<span').replace(/<\/div>$/, '</span>') + '</span><span class="p">' + kr(o.price) + '</span>' +
         '<span class="b"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' + useBtn +
         '<button type="button" class="link" data-exclude="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Not what I meant</button></span></div>');
     });
@@ -1080,15 +1150,29 @@ details.adv .field { margin-top: 8px; }
       (descText(o) ? '<p class="hint" style="margin:0">' + esc(o.description) + '</p>' : '') +
       '<div class="bigprice">' + kr(o.price) + ' kr' + (o.prePrice ? '<s>før ' + kr(o.prePrice) + '</s>' : '') + '</div>' +
       '<p class="hint" style="margin:0">' + esc([o.packLabel, up].filter(Boolean).join(' · ')) + '</p>' +
-      '<p class="hint" style="margin:0">Flyer dates: ' + esc(flyerDates(o)) + '</p>' +
+      srcHtml(o) +
+      '<p class="hint" style="margin:0">Flyer dates: ' + esc(flyerDates(o)) + (o.catalogPage ? ' · page ' + o.catalogPage : '') + '</p>' +
       (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') +
       (mode === 'live' ? '<div class="btns">' +
-        (flyer ? '<a class="primary" href="' + esc(flyer) + '" target="_blank" rel="noopener">Open the flyer' + (o.catalogPage ? ' (page ' + o.catalogPage + ')' : '') + '</a>' : '') +
+        (flyer ? '<a class="primary" href="' + esc(flyer) + '" target="_blank" rel="noopener">Open the flyer' + '' + '</a>' : '') +
         '<a class="secondary" href="' + esc(C.searchUrl(o)) + '" target="_blank" rel="noopener">Find it on eTilbudsavis</a></div>'
         : '<p class="hint" style="margin:0">Example offer: the flyer link appears in the installed app.</p>') +
       '</div>';
     var s = $('sheet'); s.innerHTML = h; s.hidden = false;
     var btn = s.querySelector('[data-close]'); if (btn) btn.focus();
+  }
+
+  // "From Lidl avis (uge 44)" or "Everyday price · Fast lav pris · since 3 May"
+  function srcHtml(o) {
+    var st = sourceText(o);
+    return st.text ? '<div class="src' + (st.everyday ? ' everyday' : '') + '">' + esc(st.text) + '</div>' : '';
+  }
+
+  function sourceText(o) {
+    var i = C.sourceInfo(o);
+    var short = function (d) { return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+    if (i.everyday) return { text: 'Everyday price, not a weekly deal' + (i.label ? ' · ' + i.label : '') + (i.from ? ' · since ' + short(i.from) : ''), everyday: true };
+    return { text: i.label ? 'From ' + i.label : '', everyday: false };
   }
 
   function flyerDates(o) {
@@ -1143,6 +1227,7 @@ details.adv .field { margin-top: 8px; }
     $('radius').value = S.radius;
     $('threshold').value = S.threshold;
     $('apiBase').value = S.apiBase;
+    $('everyday').checked = !!S.everyday;
     $('day').value = todayStr();
     updateThresholdHint();
     renderChips();
@@ -1150,6 +1235,7 @@ details.adv .field { margin-top: 8px; }
     $('form').addEventListener('submit', function (e) { e.preventDefault(); if (mode === 'demo') mode = null; run(); });
     $('threshold').addEventListener('input', function () { updateThresholdHint(); S.threshold = +this.value; save(); if (lastItems) compute(true); });
     $('day').addEventListener('change', function () { if (lastItems) compute(true); });
+    $('everyday').addEventListener('change', function () { S.everyday = this.checked; save(); if (lastItems) compute(true); });
     $('radius').addEventListener('change', function () { readForm(); });
     $('chips').addEventListener('click', function (e) {
       var b = e.target.closest('[data-chain]'); if (!b) return;
