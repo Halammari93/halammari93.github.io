@@ -100,9 +100,25 @@ details.adv .field { margin-top: 8px; }
 .line:first-child { border-top: 0; }
 .line input[type=checkbox] { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--save); }
 .line .what { min-width: 0; }
-.line .what.has-thumb { display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: start; }
+.line .what.has-thumb { display: grid; grid-template-columns: 76px 1fr; gap: 12px; align-items: start; }
 .line .txt { min-width: 0; }
-.line .thumb { width: 48px; height: 48px; object-fit: contain; background: #fff; border-radius: 6px; border: 1px solid var(--line); }
+.thumbbtn { padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: zoom-in; width: 76px; height: 76px; overflow: hidden; }
+.line .thumb { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* full-screen ad viewer */
+.sheet { position: fixed; inset: 0; z-index: 50; background: rgba(10, 14, 18, 0.72); display: flex; align-items: flex-end; justify-content: center; }
+.sheet-card { background: var(--card); color: var(--ink); width: 100%; max-width: 640px; max-height: 92%; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 10px; }
+.sheet-img { background: #fff; border-radius: 10px; display: flex; justify-content: center; align-items: center; min-height: 160px; }
+.sheet-img img { max-width: 100%; max-height: 52vh; object-fit: contain; display: block; }
+.sheet-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.sheet-top .store { font: 900 18px var(--display); font-stretch: 80%; padding: 2px 8px; border-radius: 4px; }
+.sheet h3 { font-size: 22px; font-weight: 800; font-stretch: 85%; }
+.sheet .bigprice { font: 900 34px var(--display); font-stretch: 75%; }
+.sheet .bigprice s { font: 400 15px var(--mono); color: var(--muted); margin-left: 8px; }
+.sheet .btns { display: grid; gap: 8px; }
+.sheet .btns a { display: block; text-align: center; text-decoration: none; border-radius: 10px; padding: 13px; font-weight: 700; }
+.sheet .primary { background: var(--ink); color: var(--paper); }
+.sheet .secondary { border: 1px solid var(--line); color: var(--ink); }
+.close { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; width: 40px; height: 40px; font-size: 20px; line-height: 1; cursor: pointer; }
 .line .desc { font-size: 12.5px; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
 .alt small { color: var(--muted); font-style: italic; }
 .line .item { font-weight: 700; }
@@ -188,6 +204,7 @@ details.adv .field { margin-top: 8px; }
   </form>
 
   <div id="out" aria-live="polite"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Offer details" hidden></div>
   <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.</p>
 </div>
 
@@ -327,7 +344,10 @@ details.adv .field { margin-top: 8px; }
       packLabel: packLabel(q),
       runFrom: raw.run_from || null,
       runTill: raw.run_till || null,
-      thumb: img.thumb || img.view || null
+      thumb: img.view || img.thumb || null,
+      image: img.zoom || img.view || img.thumb || null,
+      catalogId: raw.catalog_id || null,
+      catalogPage: typeof raw.catalog_page === 'number' ? raw.catalog_page : null
     };
   }
 
@@ -347,6 +367,18 @@ details.adv .field { margin-top: 8px; }
     var v = o.price / o.amount;
     var per = o.dim === 'pcs' ? 'stk' : o.dim;
     return v.toFixed(v < 10 ? 2 : 0).replace('.', ',') + ' kr/' + per;
+  }
+
+  // Links back to eTilbudsavis: the flyer the offer is in, and a search for the product.
+  function flyerUrl(o) {
+    var slug = String(o.dealer || '').trim().replace(/\s+/g, '-');
+    if (!slug) return null;
+    var url = 'https://etilbudsavis.dk/' + encodeURIComponent(slug).replace(/%2D/gi, '-');
+    if (o.catalogId) url += '?publication=' + encodeURIComponent(o.catalogId);
+    return url;
+  }
+  function searchUrl(o) {
+    return 'https://etilbudsavis.dk/soeg/' + encodeURIComponent(o.heading || '');
   }
 
   // An offer is usable on the shopping day if it runs over any part of that day.
@@ -518,7 +550,7 @@ details.adv .field { margin-top: 8px; }
 
   var api = {
     fold: fold, CHAINS: CHAINS, CHAIN_BY_KEY: CHAIN_BY_KEY, chainOf: chainOf, translate: translate,
-    parseList: parseList, normOffer: normOffer, unitPriceLabel: unitPriceLabel, validOn: validOn,
+    parseList: parseList, normOffer: normOffer, unitPriceLabel: unitPriceLabel, validOn: validOn, flyerUrl: flyerUrl, searchUrl: searchUrl,
     matchScore: matchScore, buildItem: buildItem, optimise: optimise, tillTotal: tillTotal
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -816,12 +848,12 @@ details.adv .field { margin-top: 8px; }
     var h = '<li class="line' + (done ? ' done' : '') + '">' +
       '<input type="checkbox" aria-label="Got ' + esc(it.name) + '" data-tick="' + esc(it.key + '|' + o.id) + '"' + (done ? ' checked' : '') + '>' +
       '<div class="what' + (o.thumb ? ' has-thumb' : '') + '">' +
-      (o.thumb ? '<img class="thumb" src="' + esc(o.thumb) + '" alt="" loading="lazy" onerror="this.remove()">' : '') +
+      (o.thumb ? '<button type="button" class="thumbbtn" data-view="' + esc(o.id) + '" aria-label="Show ' + esc(o.heading) + ' larger"><img class="thumb" src="' + esc(o.thumb) + '" alt="" loading="lazy" onerror="this.parentNode.remove()"></button>' : '') +
       '<div class="txt"><div class="item">' + esc(label(it)) + '</div><div class="prod">' + esc(bits.join(' · ')) + '</div>' +
       (desc ? '<div class="desc">' + esc(desc) + '</div>' : '') +
       (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') + '</div></div>' +
       '<div class="price">' + kr(o.price * it.qty) + (o.prePrice ? '<s>' + kr(o.prePrice * it.qty) + '</s>' : '') + '</div>' +
-      '<div class="tools"><button type="button" class="link" data-alts="' + esc(it.key) + '">' + (openAlts[it.key] ? 'Hide other offers' : 'Wrong product? See other offers') + '</button>' +
+      '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button><button type="button" class="link" data-alts="' + esc(it.key) + '">' + (openAlts[it.key] ? 'Hide other offers' : 'Wrong product? See other offers') + '</button>' +
       (changed ? '<button type="button" class="link" data-reset="' + esc(it.key) + '">Undo my changes</button>' : '') + '</div>';
     if (openAlts[it.key]) h += altsHtml(it, o.id);
     return h + '</li>';
@@ -841,12 +873,45 @@ details.adv .field { margin-top: 8px; }
       var o = c.offer, ch = C.CHAIN_BY_KEY[o.chain];
       var up = C.unitPriceLabel(o);
       h.push('<div class="alt"><span class="dot" style="background:' + ch.color + '"></span><span class="t"><b>' + esc(ch.name) + '</b> · ' + esc(o.heading) + (o.packLabel ? ' · ' + esc(o.packLabel) : '') + (up ? ' · ' + esc(up) : '') + (descText(o) ? '<br><small>' + esc(descText(o)) + '</small>' : '') + '</span><span class="p">' + kr(o.price) + '</span>' +
-        '<span class="b">' + (o.id === currentId ? '<span class="hint">Chosen</span>' : '<button type="button" class="link" data-pin="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Use this</button>') +
+        '<span class="b"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' + (o.id === currentId ? '<span class="hint">Chosen</span>' : '<button type="button" class="link" data-pin="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Use this</button>') +
         '<button type="button" class="link" data-exclude="' + esc(it.key) + '" data-offer="' + esc(o.id) + '">Not what I meant</button></span></div>');
     });
     h.push('</div>');
     return h.join('');
   }
+
+  // ---------- ad viewer ----------
+  function findOffer(id) {
+    for (var i = 0; i < (lastItems || []).length; i++) {
+      var c = lastItems[i].allCandidates;
+      for (var j = 0; j < c.length; j++) if (c[j].offer.id === id) return c[j].offer;
+    }
+    return null;
+  }
+
+  function openSheet(id) {
+    var o = findOffer(id); if (!o) return;
+    var ch = C.CHAIN_BY_KEY[o.chain] || { name: o.dealer, color: 'var(--paper)', ink: 'var(--ink)' };
+    var u = untilLabel(o.runTill);
+    var up = C.unitPriceLabel(o);
+    var flyer = mode === 'live' ? C.flyerUrl(o) : null;
+    var h = '<div class="sheet-card">' +
+      '<div class="sheet-top"><span class="store" style="background:' + ch.color + ';color:' + ch.ink + '">' + esc(ch.name) + '</span><button type="button" class="close" data-close aria-label="Close">×</button></div>' +
+      (o.image ? '<div class="sheet-img"><img src="' + esc(o.image) + '" alt="' + esc(o.heading) + '" onerror="this.parentNode.remove()"></div>' : '') +
+      '<h3>' + esc(o.heading) + '</h3>' +
+      (descText(o) ? '<p class="hint" style="margin:0">' + esc(o.description) + '</p>' : '') +
+      '<div class="bigprice">' + kr(o.price) + ' kr' + (o.prePrice ? '<s>før ' + kr(o.prePrice) + '</s>' : '') + '</div>' +
+      '<p class="hint" style="margin:0">' + esc([o.packLabel, up, u.t].filter(Boolean).join(' · ')) + '</p>' +
+      (mode === 'live' ? '<div class="btns">' +
+        (flyer ? '<a class="primary" href="' + esc(flyer) + '" target="_blank" rel="noopener">Open the flyer' + (o.catalogPage ? ' (page ' + o.catalogPage + ')' : '') + '</a>' : '') +
+        '<a class="secondary" href="' + esc(C.searchUrl(o)) + '" target="_blank" rel="noopener">Find it on eTilbudsavis</a></div>'
+        : '<p class="hint" style="margin:0">Example offer: the flyer link appears in the installed app.</p>') +
+      '</div>';
+    var s = $('sheet'); s.innerHTML = h; s.hidden = false;
+    var btn = s.querySelector('[data-close]'); if (btn) btn.focus();
+  }
+
+  function closeSheet() { var s = $('sheet'); s.hidden = true; s.innerHTML = ''; }
 
   function copyText() {
     var plan = planIndex != null && lastResult.options[planIndex] ? lastResult.options[planIndex] : lastResult.best;
@@ -910,6 +975,8 @@ details.adv .field { margin-top: 8px; }
     });
     $('out').addEventListener('click', function (e) {
       var t = e.target;
+      var v = t.closest('[data-view]');
+      if (v) { openSheet(v.getAttribute('data-view')); return; }
       var p = t.closest('[data-plan]');
       if (p) { planIndex = +p.getAttribute('data-plan'); render(); return; }
       if (t.hasAttribute('data-alts')) { var k = t.getAttribute('data-alts'); openAlts[k] = !openAlts[k]; render(); return; }
@@ -930,6 +997,10 @@ details.adv .field { margin-top: 8px; }
         } catch (err) { box.hidden = false; box.value = text; box.select(); }
       }
     });
+    $('sheet').addEventListener('click', function (e) {
+      if (e.target === this || e.target.closest('[data-close]')) closeSheet();
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('sheet').hidden) closeSheet(); });
     $('out').addEventListener('change', function (e) {
       var t = e.target; if (!t.hasAttribute('data-tick')) return;
       var k = t.getAttribute('data-tick');
