@@ -131,6 +131,8 @@ details.adv .field { margin-top: 8px; }
 .until { font-size: 12.5px; color: var(--muted); }
 .until.soon { color: var(--warn); font-weight: 700; }
 .sum .when { opacity: 1; }
+.link.remove { color: var(--warn); margin-left: auto; }
+.undo { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 12px; font-size: 14px; }
 .src { font: 600 11.5px var(--mono); color: var(--muted); letter-spacing: 0.02em; }
 .alt .src { display: block; }
 .src.everyday { color: var(--warn); }
@@ -217,7 +219,7 @@ details.adv .field { margin-top: 8px; }
 
   <div id="out" aria-live="polite"></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Offer details" hidden></div>
-  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:20</p>
+  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:30</p>
 </div>
 
 <script>
@@ -562,31 +564,82 @@ details.adv .field { margin-top: 8px; }
   }
 
   // ---------- matching ----------
-  var NON_FOOD_FOR_HUMANS = ['kattemad', 'hundemad', 'foder', 'katte', 'hunde', 'dyrefoder', 'kattegrus', 'hundesnack', 'whiskas', 'felix', 'pedigree', 'legetoj'];
+  var NON_FOOD_FOR_HUMANS = ['kattemad', 'hundemad', 'foder', 'katte', 'hunde', 'dyrefoder', 'kattegrus', 'hundesnack', 'whiskas', 'pedigree', 'legetoj'];
+
+  /* Pet food and pet care, recognised by brand or by words about animals.
+     Whole words only, so "kartoffelkroketter" (human croquettes) is not caught by "kroketter". */
+  var PET_BRANDS_RE = /\b(max s world|maxs world|orlando|coshida|pedigree|whiskas|sheba|purina|friskies|royal canin|hill s|hills science|brit care|dreamies|kitekat|gourmet gold|bonzo|frolic|cesar|perfect fit|iams|acana|applaws|vitakraft|trixie|dentastix|catsan|kattovit|animonda|almo nature|happy dog|happy cat|josera|bozita|smilla|chappi|mjau)\b/;
+  var PET_WORDS_RE = /\b(hund|hunde|hunden|hundens|hvalp|hvalpe|kat|katte|katten|kattens|killing|killinger|kaeledyr|dyrefoder|torfoder|vadfoder|foder|kroketter|godbidder|godbid|tyggeben|tyggestang|tyggestaenger|kattesand|kattegrus|kattesnack|hundesnack|hundekiks|hundemad|kattemad|kattefoder|hundefoder|fuglefroe|fuglefoder|kaninfoder|gnaver)\b/;
+  var PET_QUERY_RE = /\b(hund|hunde|kat|katte|hvalp|killing|foder|kattemad|hundemad|kattesand|kattegrus|godbid|godbidder|kaeledyr|dog|cat|pet)\b/;
+  function isPetProduct(o) {
+    var t = fold(o.heading) + ' ' + fold(o.description) + ' ' + fold(o.brand || '');
+    return PET_BRANDS_RE.test(t) || PET_WORDS_RE.test(t);
+  }
+
+  // Words (or compound endings) that mark a product as not food.
+  var NONFOOD_TAIL_RE = /(maskine|maskiner|deodorant|deospray|deostick|shampoo|balsam|parfume|bodylotion|showergel|tandpasta|tandborste|krus|kopper|termokande|kande|rister|skraber|legetoj|taske|lampe|batteri|batterier|oplader|gryde|gryder|pande|pander|kniv|knive|handklaede|sengetoj|vaskemiddel|skyllemiddel|opvasketabs|toiletpapir|kokkenruller|bleer|vatpinde|barberblade|neglelak|mascara|haarfarve|harfarve)$/;
+  var NOT_FOOD_DA = { bleer: 1, babymad: 1, toiletpapir: 1, kokkenruller: 1, vaskemiddel: 1, opvaskemiddel: 1, shampoo: 1, tandpasta: 1, kattemad: 1, hundemad: 1 };
+  var FOOD_SET = null;
+  function isFoodQuery(fq) {
+    if (!FOOD_SET) {
+      FOOD_SET = {};
+      Object.keys(EN_DA).forEach(function (en) {
+        var da = fold(EN_DA[en]);
+        if (NOT_FOOD_DA[da]) return;
+        FOOD_SET[da] = 1; FOOD_SET[fold(en)] = 1;
+      });
+      ['kylling', 'oksekod', 'svinekod', 'lam', 'kalkun', 'fisk', 'torsk', 'ost', 'mel', 'brod', 'rugbrod', 'franskbrod', 'smor', 'maelk', 'letmaelk', 'minimaelk', 'sodmaelk', 'skyr', 'kaffe', 'te', 'is', 'frugt', 'gront', 'gronsager', 'kage', 'kiks', 'slik', 'sodavand', 'vand', 'ol', 'vin', 'juice', 'mysli', 'musli', 'havregryn', 'leverpostej', 'palaeg', 'spegepolse', 'polser', 'hakket oksekod', 'kyllingebryst', 'laks', 'rejer', 'tun', 'aeg', 'kartofler', 'lob', 'gulerodder', 'agurk', 'tomater', 'aebler', 'paerer', 'bananer', 'appelsiner', 'citroner', 'vindruer', 'jordbaer', 'blabaer', 'hindbaer', 'ris', 'pasta', 'nudler', 'sukker', 'honning', 'syltetoj', 'nutella', 'chokolade', 'chips', 'nodder', 'mandler', 'ketchup', 'sennep', 'mayonnaise', 'remoulade', 'olie', 'olivenolie', 'eddike', 'krydderier', 'salt', 'peber', 'flode', 'creme fraiche', 'yoghurt', 'pizza', 'lasagne', 'frikadeller', 'bacon', 'skinke', 'salami'].forEach(function (w) { FOOD_SET[w] = 1; });
+    }
+    return !!FOOD_SET[fq];
+  }
+
+  /* Does a word in the product name really contain the searched word? Danish forms only:
+       3 = the word itself, an inflection ("bananer", "bananerne") or the first part of a compound ("bananchips")
+       2 = the last part of a compound ("letmælk", "rugbrød")
+       0 = no, e.g. "Banani" (a deodorant brand) is not "banan". */
+  var INFLECTIONS = { '': 1, e: 1, r: 1, n: 1, s: 1, er: 1, en: 1, et: 1, ne: 1, es: 1, erne: 1, ene: 1, ens: 1, ers: 1, ets: 1, ernes: 1 };
+  function wordMatch(words, stem) {
+    var best = 0;
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (!w) continue;
+      if (w.indexOf(stem) === 0) {
+        var rest = w.slice(stem.length);
+        if (INFLECTIONS[rest] || rest.length >= 3) return 3;
+      } else if (stem.length >= 4) {
+        var at = w.indexOf(stem);
+        if (at > 0 && INFLECTIONS[w.slice(at + stem.length)]) best = 2;
+      }
+    }
+    return best;
+  }
 
   // Score how well an offer matches the item. 0 means "not this product".
   function matchScore(query, o) {
     var tokens = fold(query).split(' ').filter(function (t) { return t.length > 1 || /\d/.test(t); });
     if (!tokens.length) return 0;
     var head = fold(o.heading), desc = fold(o.description);
-    var headWords = head.split(' ');
+    var headWords = head.split(' '), descWords = desc.split(' ');
     var score = 0, inHead = 0;
     for (var i = 0; i < tokens.length; i++) {
       var t = tokens[i];
       var stem = t.length > 4 ? t.replace(/(er|e|r)$/, '') : t; // tomater ~ tomat, boller ~ boll
-      var wordStart = headWords.some(function (w) { return w.indexOf(stem) === 0; });
-      if (wordStart) { score += 3; inHead++; }
-      else if (head.indexOf(stem) >= 0) { score += 2; inHead++; }
-      else if (desc.indexOf(stem) >= 0) score += 1;
+      var h = wordMatch(headWords, stem);
+      if (h) { score += h; inHead++; }
+      else if (wordMatch(descWords, stem)) score += 1;
       else return 0;
     }
     if (!inHead) return 0;
     if (headWords[0] && headWords[0].indexOf(tokens[0].slice(0, Math.max(3, tokens[0].length - 2))) === 0) score += 1;
     var fq = fold(query);
+    var petQuery = PET_QUERY_RE.test(fq) || PET_WORDS_RE.test(fq) || PET_BRANDS_RE.test(fq);
+    if (petQuery) return score; // they asked for pet food
     for (var j = 0; j < NON_FOOD_FOR_HUMANS.length; j++) {
-      var w = NON_FOOD_FOR_HUMANS[j];
-      if ((head + ' ' + desc).indexOf(w) >= 0 && fq.indexOf(w) < 0) return 0;
+      if ((head + ' ' + desc).indexOf(NON_FOOD_FOR_HUMANS[j]) >= 0) return 0;
     }
+    if (isPetProduct(o)) return 0;
+    // A food on your list should never match a coffee machine, an ice scraper or a deodorant.
+    if (isFoodQuery(fq) && headWords.concat(descWords.slice(0, 6)).some(function (w) { return NONFOOD_TAIL_RE.test(w); })) return 0;
     return score;
   }
 
@@ -920,6 +973,7 @@ details.adv .field { margin-top: 8px; }
   var parsed = [], offersByItem = {};
 
   function run() {
+    lastRemoved = null;
     readForm();
     parsed = C.parseList(S.list);
     if (!parsed.length) { renderMsg('Add at least one thing to your list.'); return; }
@@ -981,6 +1035,7 @@ details.adv .field { margin-top: 8px; }
     if (note === 'demo-start') out.push('<div class="banner"><b>Example offers.</b> These prices are made up to show how the list works. Type your postcode above and tap <b>Find the best deals</b> to get this week’s real offers near you.</div>');
     else if (note === 'demo') out.push('<div class="banner"><b>Example offers.</b> The live flyers could not be reached from here, so these are made-up example prices to show how the list works. Open the installed app to see this week’s real offers.</div>');
     else if (note) out.push('<div class="banner">' + esc(note) + '</div>');
+    if (lastRemoved) out.push('<div class="undo"><span>Removed <b>' + esc(lastRemoved.name) + '</b></span><button type="button" class="ghost" id="undoRemove">Undo</button></div>');
 
     var res = lastResult;
     var none = lastItems.filter(function (it) { return !Object.keys(it.best).length && !(it.later && it.later.length); });
@@ -1042,13 +1097,13 @@ details.adv .field { margin-top: 8px; }
       var m = ['<div class="plain"><h3>Not on offer in these stores</h3><p class="hint">Buy these at regular price wherever you go. Nearby offers are shown in case you pass by.</p><ul>'];
       plan.missing.forEach(function (it) {
         var elsewhere = Object.keys(it.best).map(function (k) { return it.best[k]; }).sort(function (a, b) { return a.offer.price - b.offer.price; })[0];
-        m.push('<li>' + esc(label(it)) + (elsewhere ? ' <small>· on offer at ' + esc(chainName(elsewhere.offer.chain)) + ' for ' + kr(elsewhere.offer.price) + ' kr</small>' : '') + '</li>');
+        m.push('<li>' + esc(label(it)) + (elsewhere ? ' <small>· on offer at ' + esc(chainName(elsewhere.offer.chain)) + ' for ' + kr(elsewhere.offer.price) + ' kr</small>' : '') + ' ' + removeBtn(it) + '</li>');
       });
       m.push('</ul></div>');
       out.push(m.join(''));
     }
     if (none.length) {
-      out.push('<div class="plain"><h3>No offers this week</h3><ul>' + none.map(function (it) { return '<li>' + esc(label(it)) + '</li>'; }).join('') + '</ul><p class="hint">Try a more specific or different word if you expected a match.</p></div>');
+      out.push('<div class="plain"><h3>No offers this week</h3><ul>' + none.map(function (it) { return '<li>' + esc(label(it)) + ' ' + removeBtn(it) + '</li>'; }).join('') + '</ul><p class="hint">Try a more specific or different word if you expected a match.</p></div>');
     }
 
     out.push('<div class="actions"><button type="button" class="ghost" id="copy">Copy list</button><button type="button" class="ghost" id="clearTicks">Clear ticks</button></div><textarea class="copyout" id="copyout" hidden readonly></textarea>');
@@ -1069,13 +1124,35 @@ details.adv .field { margin-top: 8px; }
           (save && save >= 1 ? ' <small>(about ' + krRound(save) + ' kr less than today’s pick)</small>' : '') + '</div>' +
           '<div class="until soon">' + esc(u.t) + '</div>' +
           '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' +
-          (u.date ? '<button type="button" class="link" data-day="' + ymdStr(u.date) + '">Plan my shop for ' + esc(u.date.toLocaleDateString('en-GB', { weekday: 'long' })) + '</button>' : '') + '</div></li>');
+          (u.date ? '<button type="button" class="link" data-day="' + ymdStr(u.date) + '">Plan my shop for ' + esc(u.date.toLocaleDateString('en-GB', { weekday: 'long' })) + '</button>' : '') + removeBtn(it) + '</div></li>');
       });
       lt.push('</ul></div>');
       return lt.join('');
     }
   }
 
+
+  function removeBtn(it) { return '<button type="button" class="link remove" data-remove="' + esc(it.key) + '">Remove</button>'; }
+
+  // Take an item off the list without fetching offers again; one step of undo.
+  var lastRemoved = null;
+  function removeItem(key) {
+    var it = parsed.filter(function (x) { return x.key === key; })[0];
+    if (!it) return;
+    lastRemoved = { name: it.name, list: S.list };
+    parsed = parsed.filter(function (x) { return x.key !== key; });
+    S.list = parsed.map(function (x) { return (x.qty > 1 ? x.qty + ' x ' : '') + x.name; }).join('\n');
+    $('list').value = S.list; save();
+    if (!parsed.length) { lastItems = null; renderMsg('Your list is empty. Add something above.'); return; }
+    compute(false);
+  }
+  function undoRemove() {
+    if (!lastRemoved) return;
+    S.list = lastRemoved.list; $('list').value = S.list; save();
+    lastRemoved = null;
+    parsed = C.parseList(S.list);
+    compute(false);
+  }
 
   function label(it) { return (it.qty > 1 ? it.qty + ' × ' : '') + it.name; }
 
@@ -1098,7 +1175,8 @@ details.adv .field { margin-top: 8px; }
       (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') + '</div></div>' +
       '<div class="price">' + kr(o.price * it.qty) + (o.prePrice ? '<s>' + kr(o.prePrice * it.qty) + '</s>' : '') + '</div>' +
       '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button><button type="button" class="link" data-alts="' + esc(it.key) + '">' + (openAlts[it.key] ? 'Hide other offers' : 'Wrong product? See other offers') + '</button>' +
-      (changed ? '<button type="button" class="link" data-reset="' + esc(it.key) + '">Undo my changes</button>' : '') + '</div>';
+      (changed ? '<button type="button" class="link" data-reset="' + esc(it.key) + '">Undo my changes</button>' : '') +
+      removeBtn(it) + '</div>';
     if (openAlts[it.key]) h += altsHtml(it, o.id);
     return h + '</li>';
   }
@@ -1261,6 +1339,8 @@ details.adv .field { margin-top: 8px; }
         save(); compute(true); return;
       }
       if (t.hasAttribute('data-reset')) { var rk = t.getAttribute('data-reset'); delete S.pinned[rk]; delete S.excluded[rk]; save(); compute(true); return; }
+      if (t.hasAttribute('data-remove')) { removeItem(t.getAttribute('data-remove')); return; }
+      if (t.id === 'undoRemove') { undoRemove(); return; }
       if (t.id === 'clearTicks') { S.checked = {}; save(); render(); return; }
       if (t.id === 'copy') {
         var text = copyText(), box = $('copyout');
