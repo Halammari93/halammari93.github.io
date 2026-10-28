@@ -131,8 +131,16 @@ details.adv .field { margin-top: 8px; }
 .until { font-size: 12.5px; color: var(--muted); }
 .until.soon { color: var(--warn); font-weight: 700; }
 .sum .when { opacity: 1; }
-.link.remove { color: var(--warn); margin-left: auto; }
-.undo { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 12px; font-size: 14px; }
+.link.remove, .link.undo-btn { margin-left: auto; min-width: 56px; min-height: 32px; text-align: right; font-family: var(--body); font-size: 13px; }
+.price .amt, .price .rm { display: block; }
+.price .rm { margin-top: 6px; }
+.link.remove { color: var(--warn); }
+.link.undo-btn { color: var(--ink); font-weight: 700; }
+.removing .item, .removing .prod, .removing .desc, .removing .price, .removing .src, .removing .until, .removing b { text-decoration: line-through; }
+.line.removing > input, .line.removing .what, .line.removing .tools, .line.removing .amt { opacity: 0.4; }
+li.removing:not(.line) > :not(.tools), li.removing .tools > :not(.undo-btn) { opacity: 0.4; }
+li.removing { color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .removing { transition: opacity .2s; } }
 .src { font: 600 11.5px var(--mono); color: var(--muted); letter-spacing: 0.02em; }
 .alt .src { display: block; }
 .src.everyday { color: var(--warn); }
@@ -219,7 +227,7 @@ details.adv .field { margin-top: 8px; }
 
   <div id="out" aria-live="polite"></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Offer details" hidden></div>
-  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:30</p>
+  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:38</p>
 </div>
 
 <script>
@@ -597,6 +605,9 @@ details.adv .field { margin-top: 8px; }
        3 = the word itself, an inflection ("bananer", "bananerne") or the first part of a compound ("bananchips")
        2 = the last part of a compound ("letmælk", "rugbrød")
        0 = no, e.g. "Banani" (a deodorant brand) is not "banan". */
+  /* First parts of a compound that make it a different product: "kakaomælk" and "havremælk" are not
+     milk, "iskaffe" is not coffee, "jordbæryoghurt" is not plain yoghurt. Typing the full word still finds them. */
+  var DIFFERENT_PRODUCT_RE = /(kakao|choko|chokolade|kokos|havre|mandel|soja|ris|cashew|hasselnod|nodde|jordbaer|hindbaer|blabaer|vanilje|banan|kaffe|karamel|mokka|kondens|kaerne|gede|faare|is|frugt|protein|laktosefri)$/;
   var INFLECTIONS = { '': 1, e: 1, r: 1, n: 1, s: 1, er: 1, en: 1, et: 1, ne: 1, es: 1, erne: 1, ene: 1, ens: 1, ers: 1, ets: 1, ernes: 1 };
   function wordMatch(words, stem) {
     var best = 0;
@@ -608,7 +619,7 @@ details.adv .field { margin-top: 8px; }
         if (INFLECTIONS[rest] || rest.length >= 3) return 3;
       } else if (stem.length >= 4) {
         var at = w.indexOf(stem);
-        if (at > 0 && INFLECTIONS[w.slice(at + stem.length)]) best = 2;
+        if (at > 0 && INFLECTIONS[w.slice(at + stem.length)] && !DIFFERENT_PRODUCT_RE.test(w.slice(0, at))) best = 2;
       }
     }
     return best;
@@ -973,7 +984,7 @@ details.adv .field { margin-top: 8px; }
   var parsed = [], offersByItem = {};
 
   function run() {
-    lastRemoved = null;
+    commitAllPending();
     readForm();
     parsed = C.parseList(S.list);
     if (!parsed.length) { renderMsg('Add at least one thing to your list.'); return; }
@@ -1035,7 +1046,6 @@ details.adv .field { margin-top: 8px; }
     if (note === 'demo-start') out.push('<div class="banner"><b>Example offers.</b> These prices are made up to show how the list works. Type your postcode above and tap <b>Find the best deals</b> to get this week’s real offers near you.</div>');
     else if (note === 'demo') out.push('<div class="banner"><b>Example offers.</b> The live flyers could not be reached from here, so these are made-up example prices to show how the list works. Open the installed app to see this week’s real offers.</div>');
     else if (note) out.push('<div class="banner">' + esc(note) + '</div>');
-    if (lastRemoved) out.push('<div class="undo"><span>Removed <b>' + esc(lastRemoved.name) + '</b></span><button type="button" class="ghost" id="undoRemove">Undo</button></div>');
 
     var res = lastResult;
     var none = lastItems.filter(function (it) { return !Object.keys(it.best).length && !(it.later && it.later.length); });
@@ -1097,13 +1107,13 @@ details.adv .field { margin-top: 8px; }
       var m = ['<div class="plain"><h3>Not on offer in these stores</h3><p class="hint">Buy these at regular price wherever you go. Nearby offers are shown in case you pass by.</p><ul>'];
       plan.missing.forEach(function (it) {
         var elsewhere = Object.keys(it.best).map(function (k) { return it.best[k]; }).sort(function (a, b) { return a.offer.price - b.offer.price; })[0];
-        m.push('<li>' + esc(label(it)) + (elsewhere ? ' <small>· on offer at ' + esc(chainName(elsewhere.offer.chain)) + ' for ' + kr(elsewhere.offer.price) + ' kr</small>' : '') + ' ' + removeBtn(it) + '</li>');
+        m.push('<li class="' + removingClass(it).trim() + '">' + esc(label(it)) + (elsewhere ? ' <small>· on offer at ' + esc(chainName(elsewhere.offer.chain)) + ' for ' + kr(elsewhere.offer.price) + ' kr</small>' : '') + ' ' + removeBtn(it) + '</li>');
       });
       m.push('</ul></div>');
       out.push(m.join(''));
     }
     if (none.length) {
-      out.push('<div class="plain"><h3>No offers this week</h3><ul>' + none.map(function (it) { return '<li>' + esc(label(it)) + ' ' + removeBtn(it) + '</li>'; }).join('') + '</ul><p class="hint">Try a more specific or different word if you expected a match.</p></div>');
+      out.push('<div class="plain"><h3>No offers this week</h3><ul>' + none.map(function (it) { return '<li class="' + removingClass(it).trim() + '">' + esc(label(it)) + ' ' + removeBtn(it) + '</li>'; }).join('') + '</ul><p class="hint">Try a more specific or different word if you expected a match.</p></div>');
     }
 
     out.push('<div class="actions"><button type="button" class="ghost" id="copy">Copy list</button><button type="button" class="ghost" id="clearTicks">Clear ticks</button></div><textarea class="copyout" id="copyout" hidden readonly></textarea>');
@@ -1120,7 +1130,7 @@ details.adv .field { margin-top: 8px; }
         var c = it.later[0], o = c.offer, u = untilLabel(o);
         var nowPick = plan && (plan.assign.filter(function (a) { return a.item.key === it.key; })[0] || {}).pick;
         var save = nowPick ? (nowPick.cost - c.cost) * it.qty : null;
-        lt.push('<li><div><b>' + esc(label(it)) + '</b> · ' + esc(chainName(o.chain)) + ' · ' + esc(o.heading) + ' · <b>' + kr(o.price * it.qty) + ' kr</b>' +
+        lt.push('<li class="' + removingClass(it).trim() + '"><div><b>' + esc(label(it)) + '</b> · ' + esc(chainName(o.chain)) + ' · ' + esc(o.heading) + ' · <b>' + kr(o.price * it.qty) + ' kr</b>' +
           (save && save >= 1 ? ' <small>(about ' + krRound(save) + ' kr less than today’s pick)</small>' : '') + '</div>' +
           '<div class="until soon">' + esc(u.t) + '</div>' +
           '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button>' +
@@ -1132,26 +1142,67 @@ details.adv .field { margin-top: 8px; }
   }
 
 
-  function removeBtn(it) { return '<button type="button" class="link remove" data-remove="' + esc(it.key) + '">Remove</button>'; }
+  /* Remove → the button turns into Undo in the same place, the item is greyed out and crossed out,
+     and after 5 seconds the list updates without it. Tapping Undo in time puts it back. */
+  var pending = {};      // item key -> timer
+  var REMOVE_DELAY = 5000;
 
-  // Take an item off the list without fetching offers again; one step of undo.
-  var lastRemoved = null;
-  function removeItem(key) {
-    var it = parsed.filter(function (x) { return x.key === key; })[0];
-    if (!it) return;
-    lastRemoved = { name: it.name, list: S.list };
-    parsed = parsed.filter(function (x) { return x.key !== key; });
-    S.list = parsed.map(function (x) { return (x.qty > 1 ? x.qty + ' x ' : '') + x.name; }).join('\n');
+  function removeBtn(it) {
+    return pending[it.key]
+      ? '<button type="button" class="link undo-btn" data-undo="' + esc(it.key) + '">Undo</button>'
+      : '<button type="button" class="link remove" data-remove="' + esc(it.key) + '">Remove</button>';
+  }
+  function removingClass(it) { return pending[it.key] ? ' removing' : ''; }
+
+  function listText(items) {
+    return items.map(function (x) { return (x.qty > 1 ? x.qty + ' x ' : '') + x.name; }).join('\n');
+  }
+  function saveListWithoutPending() {
+    S.list = listText(parsed.filter(function (x) { return !pending[x.key]; }));
     $('list').value = S.list; save();
+  }
+
+  function removeItem(key, btn) {
+    if (pending[key] || !parsed.some(function (x) { return x.key === key; })) return;
+    pending[key] = setTimeout(function () { commitRemove(key); }, REMOVE_DELAY);
+    saveListWithoutPending();
+    // Change the row in place, so nothing moves under your finger.
+    var row = btn && (btn.closest('.line') || btn.closest('li'));
+    if (row) row.classList.add('removing');
+    if (btn) {
+      btn.textContent = 'Undo';
+      btn.className = 'link undo-btn';
+      btn.removeAttribute('data-remove');
+      btn.setAttribute('data-undo', key);
+    }
+  }
+
+  function undoRemove(key, btn) {
+    if (!pending[key]) return;
+    clearTimeout(pending[key]); delete pending[key];
+    saveListWithoutPending();
+    var row = btn && (btn.closest('.line') || btn.closest('li'));
+    if (row) row.classList.remove('removing');
+    if (btn) {
+      btn.textContent = 'Remove';
+      btn.className = 'link remove';
+      btn.removeAttribute('data-undo');
+      btn.setAttribute('data-remove', key);
+    }
+  }
+
+  function commitRemove(key) {
+    if (!pending[key]) return;
+    delete pending[key];
+    parsed = parsed.filter(function (x) { return x.key !== key; });
     if (!parsed.length) { lastItems = null; renderMsg('Your list is empty. Add something above.'); return; }
     compute(false);
   }
-  function undoRemove() {
-    if (!lastRemoved) return;
-    S.list = lastRemoved.list; $('list').value = S.list; save();
-    lastRemoved = null;
-    parsed = C.parseList(S.list);
-    compute(false);
+
+  // A new search finishes any removals still waiting.
+  function commitAllPending() {
+    Object.keys(pending).forEach(function (k) { clearTimeout(pending[k]); });
+    pending = {};
   }
 
   function label(it) { return (it.qty > 1 ? it.qty + ' × ' : '') + it.name; }
@@ -1165,7 +1216,7 @@ details.adv .field { margin-top: 8px; }
     var up = C.unitPriceLabel(o); if (up) bits.push(up);
     var changed = S.pinned[it.key] || Object.keys(S.excluded[it.key] || {}).length;
     var desc = descText(o);
-    var h = '<li class="line' + (done ? ' done' : '') + '">' +
+    var h = '<li class="line' + (done ? ' done' : '') + removingClass(it) + '">' +
       '<input type="checkbox" aria-label="Got ' + esc(it.name) + '" data-tick="' + esc(it.key + '|' + o.id) + '"' + (done ? ' checked' : '') + '>' +
       '<div class="what' + (o.thumb ? ' has-thumb' : '') + '">' +
       (o.thumb ? '<button type="button" class="thumbbtn" data-view="' + esc(o.id) + '" aria-label="Show ' + esc(o.heading) + ' larger"><img class="thumb" src="' + esc(o.thumb) + '" alt="" loading="lazy" onerror="this.parentNode.remove()"></button>' : '') +
@@ -1173,10 +1224,9 @@ details.adv .field { margin-top: 8px; }
       (desc ? '<div class="desc">' + esc(desc) + '</div>' : '') +
       srcHtml(o) +
       (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') + '</div></div>' +
-      '<div class="price">' + kr(o.price * it.qty) + (o.prePrice ? '<s>' + kr(o.prePrice * it.qty) + '</s>' : '') + '</div>' +
+      '<div class="price"><span class="amt">' + kr(o.price * it.qty) + (o.prePrice ? '<s>' + kr(o.prePrice * it.qty) + '</s>' : '') + '</span><span class="rm">' + removeBtn(it) + '</span></div>' +
       '<div class="tools"><button type="button" class="link" data-view="' + esc(o.id) + '">See the ad</button><button type="button" class="link" data-alts="' + esc(it.key) + '">' + (openAlts[it.key] ? 'Hide other offers' : 'Wrong product? See other offers') + '</button>' +
-      (changed ? '<button type="button" class="link" data-reset="' + esc(it.key) + '">Undo my changes</button>' : '') +
-      removeBtn(it) + '</div>';
+      (changed ? '<button type="button" class="link" data-reset="' + esc(it.key) + '">Undo my changes</button>' : '') + '</div>';
     if (openAlts[it.key]) h += altsHtml(it, o.id);
     return h + '</li>';
   }
@@ -1339,8 +1389,8 @@ details.adv .field { margin-top: 8px; }
         save(); compute(true); return;
       }
       if (t.hasAttribute('data-reset')) { var rk = t.getAttribute('data-reset'); delete S.pinned[rk]; delete S.excluded[rk]; save(); compute(true); return; }
-      if (t.hasAttribute('data-remove')) { removeItem(t.getAttribute('data-remove')); return; }
-      if (t.id === 'undoRemove') { undoRemove(); return; }
+      if (t.hasAttribute('data-remove')) { removeItem(t.getAttribute('data-remove'), t); return; }
+      if (t.hasAttribute('data-undo')) { undoRemove(t.getAttribute('data-undo'), t); return; }
       if (t.id === 'clearTicks') { S.checked = {}; save(); render(); return; }
       if (t.id === 'copy') {
         var text = copyText(), box = $('copyout');
