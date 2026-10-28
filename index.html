@@ -211,7 +211,7 @@ details.adv .field { margin-top: 8px; }
 
   <div id="out" aria-live="polite"></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Offer details" hidden></div>
-  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.</p>
+  <p class="foot">Offers from etilbudsavis.dk (Tjek). Prices are flyer prices; check the shelf label in the store.<br>App version 28 Oct 2026, 21:11</p>
 </div>
 
 <script>
@@ -348,13 +348,22 @@ details.adv .field { margin-top: 8px; }
       amount: amount,
       dim: dim,
       packLabel: packLabel(q),
-      runFrom: raw.run_from || null,
-      runTill: raw.run_till || null,
+      runFrom: isoDate(raw.run_from),
+      runTill: isoDate(raw.run_till),
       thumb: img.view || img.thumb || null,
       image: img.zoom || img.view || img.thumb || null,
       catalogId: raw.catalog_id || null,
       catalogPage: typeof raw.catalog_page === 'number' ? raw.catalog_page : null
     };
+  }
+
+  /* The offer service writes dates as "2026-11-01T00:00:00+0100". Safari on iPhone cannot read an
+     offset without a colon and returns Invalid Date, which made every offer look valid every day.
+     Rewrite to "+01:00" (and a space to "T") so all browsers read the same moment. */
+  function isoDate(s) {
+    if (!s) return null;
+    var v = String(s).trim().replace(' ', 'T').replace(/([+-]\d{2})(\d{2})$/, '$1:$2').replace(/\+00:00$/, 'Z');
+    return isNaN(new Date(v).getTime()) ? null : v;
   }
 
   function packLabel(q) {
@@ -430,8 +439,8 @@ details.adv .field { margin-top: 8px; }
       var j = i + 1; if (words[j] === 'til') j++;
       var nextW = words[j];
       var d2 = nextW && WEEKDAYS.hasOwnProperty(nextW) ? WEEKDAYS[nextW] : (nextW && WD_ABBR.hasOwnProperty(nextW) ? WD_ABBR[nextW] : null);
-      if (d === null) { // abbreviations only count as a pair, "man" alone is too ambiguous
-        if (d2 === null) continue;
+      if (d === null) { // abbreviations count as a pair ("fre-søn") or after "kun"/"gælder" ("Kun søn.")
+        if (d2 === null && !/^(kun|gaelder|gaeldende)$/.test(words[i - 1] || '')) continue;
         d = abbr;
       }
       if (d2 !== null) { dayRange(d, d2).forEach(function (x) { days[x] = 1; }); i = j; }
@@ -453,7 +462,7 @@ details.adv .field { margin-top: 8px; }
         dates[ymd(x)] = 1;
       });
     }
-    var reNum = /(^|[^\d,.])(\d{1,2})[\/.](\d{1,2})(?![\d,.]|\s?(%|kg|g|l|cl|dl|ml|stk|pk))/g;
+    var reNum = /(^|[^\d,.])(\d{1,2})[\/.](\d{1,2})(?!\d|,\d|\.\d|\s?(%|kg|g|l|cl|dl|ml|stk|pk)\b)/g;
     while ((m = reNum.exec(raw))) addDate(+m[2], +m[3]);
     var reMon = /\b(\d{1,2})\s(jan|januar|feb|februar|mar|marts|apr|april|maj|jun|juni|jul|juli|aug|august|sep|sept|september|okt|oktober|nov|november|dec|december)\b/g;
     while ((m = reMon.exec(t))) addDate(+m[1], MONTHS[m[2]]);
@@ -1071,6 +1080,7 @@ details.adv .field { margin-top: 8px; }
       (descText(o) ? '<p class="hint" style="margin:0">' + esc(o.description) + '</p>' : '') +
       '<div class="bigprice">' + kr(o.price) + ' kr' + (o.prePrice ? '<s>før ' + kr(o.prePrice) + '</s>' : '') + '</div>' +
       '<p class="hint" style="margin:0">' + esc([o.packLabel, up].filter(Boolean).join(' · ')) + '</p>' +
+      '<p class="hint" style="margin:0">Flyer dates: ' + esc(flyerDates(o)) + '</p>' +
       (u.t ? '<div class="until' + (u.soon ? ' soon' : '') + '">' + esc(u.t) + '</div>' : '') +
       (mode === 'live' ? '<div class="btns">' +
         (flyer ? '<a class="primary" href="' + esc(flyer) + '" target="_blank" rel="noopener">Open the flyer' + (o.catalogPage ? ' (page ' + o.catalogPage + ')' : '') + '</a>' : '') +
@@ -1079,6 +1089,11 @@ details.adv .field { margin-top: 8px; }
       '</div>';
     var s = $('sheet'); s.innerHTML = h; s.hidden = false;
     var btn = s.querySelector('[data-close]'); if (btn) btn.focus();
+  }
+
+  function flyerDates(o) {
+    var f = function (iso) { var d = iso ? new Date(iso) : null; return d && !isNaN(d) ? d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '?'; };
+    return f(o.runFrom) + ' – ' + f(o.runTill);
   }
 
   function closeSheet() { var s = $('sheet'); s.hidden = true; s.innerHTML = ''; }
